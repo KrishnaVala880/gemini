@@ -47,91 +47,18 @@ except Exception as e:
 # LLM SETUP
 # ================================================
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-translator_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
 # ================================================
-# TRANSLATION FUNCTIONS
-# ================================================
-def translate_gujarati_to_english(text):
-    """Translate Gujarati text to English"""
-    try:
-        translation_prompt = f"""
-Translate the following Gujarati text to English. Provide only the English translation, nothing else.
-
-Gujarati text: {text}
-
-English translation:
-        """
-        response = translator_llm.invoke(translation_prompt)
-        return response.content.strip()
-    except Exception as e:
-        logging.error(f"❌ Error translating Gujarati to English: {e}")
-        return text  # Return original text if translation fails
-
-def translate_english_to_gujarati(text):
-    """Translate English text to Gujarati"""
-    try:
-        translation_prompt = f"""
-Translate the following English text to Gujarati. Keep the same tone and style. Provide only the Gujarati translation, nothing else.
-
-English text: {text}
-
-Gujarati translation:
-        """
-        response = translator_llm.invoke(translation_prompt)
-        return response.content.strip()
-    except Exception as e:
-        logging.error(f"❌ Error translating English to Gujarati: {e}")
-        return text  # Return original text if translation fails
-
-# ================================================
-# CONVERSATION STATE & CONTEXT ANALYSIS
+# CONVERSATION STATE
 # ================================================
 CONV_STATE = {}
 
 def ensure_conversation_state(from_phone):
     """Ensure conversation state has all required fields"""
     if from_phone not in CONV_STATE:
-        CONV_STATE[from_phone] = {
-            "chat_history": [], 
-            "language": "english", 
-            "waiting_for": None,
-            "last_context_topics": [],
-            "user_interests": []
-        }
-    else:
-        # Ensure all required fields exist
-        if "waiting_for" not in CONV_STATE[from_phone]:
-            CONV_STATE[from_phone]["waiting_for"] = None
-        if "last_context_topics" not in CONV_STATE[from_phone]:
-            CONV_STATE[from_phone]["last_context_topics"] = []
-        if "user_interests" not in CONV_STATE[from_phone]:
-            CONV_STATE[from_phone]["user_interests"] = []
-
-def analyze_user_interests(message_text, state):
-    """Analyze user message to understand their interests"""
-    message_lower = message_text.lower()
-    interests = []
-    
-    # Interest categories - these help understand user intent
-    interest_keywords = {
-        "pricing": ["price", "cost", "budget", "expensive", "cheap", "affordable", "rate"],
-        "size": ["size", "area", "bhk", "bedroom", "space", "sqft", "square"],
-        "amenities": ["amenities", "facilities", "gym", "pool", "parking", "security"],
-        "location": ["location", "address", "nearby", "connectivity", "metro", "airport"],
-        "availability": ["available", "ready", "possession", "when", "booking"],
-        "visit": ["visit", "see", "tour", "show", "check", "viewing"]
-    }
-    
-    for category, keywords in interest_keywords.items():
-        if any(keyword in message_lower for keyword in keywords):
-            interests.append(category)
-    
-    # Update user interests (keep last 5 to avoid memory bloat)
-    state["user_interests"].extend(interests)
-    state["user_interests"] = list(set(state["user_interests"][-5:]))
-    
-    return interests
+        CONV_STATE[from_phone] = {"chat_history": [], "language": "english", "waiting_for": None}
+    elif "waiting_for" not in CONV_STATE[from_phone]:
+        CONV_STATE[from_phone]["waiting_for"] = None
 
 # ================================================
 # WHATSAPP FUNCTIONS
@@ -214,10 +141,7 @@ def process_incoming_message(from_phone, message_text, message_id):
     state["language"] = "gujarati" if guj else "english"
     state["chat_history"].append({"role": "user", "content": message_text})
 
-    # Analyze user interests for better follow-up questions
-    current_interests = analyze_user_interests(message_text, state)
-    
-    logging.info(f"📱 Processing message from {from_phone}: {message_text} [Language: {state['language']}] [Interests: {current_interests}]")
+    logging.info(f"📱 Processing message from {from_phone}: {message_text} [Language: {state['language']}]")
 
     # Check for follow-up responses
     message_lower = message_text.lower().strip()
@@ -227,17 +151,22 @@ def process_incoming_message(from_phone, message_text, message_id):
         if any(word in message_lower for word in ["yes", "yeah", "yep", "sure", "please", "ok", "okay", "send", "हाँ", "હા"]):
             state["waiting_for"] = None
             send_whatsapp_location(from_phone)
-            confirmation_text = "📍 Here's our location! We're open from 10:30 AM to 7:00 PM. Looking forward to see you! 😊"
-            if state["language"] == "gujarati":
-                confirmation_text = translate_english_to_gujarati(confirmation_text)
-            send_whatsapp_text(from_phone, confirmation_text)
+            send_whatsapp_text(from_phone, "📍 Here's our location! We're open from 10:30 AM to 7:00 PM. Looking forward to see you! 😊")
             return
         elif any(word in message_lower for word in ["no", "nope", "not now", "later", "નહીં", "ના"]):
             state["waiting_for"] = None
-            decline_text = "No problem! Feel free to ask if you need anything else. You can contact our agents at 8238477697 or 9974812701 anytime! 😊"
-            if state["language"] == "gujarati":
-                decline_text = translate_english_to_gujarati(decline_text)
-            send_whatsapp_text(from_phone, decline_text)
+            send_whatsapp_text(from_phone, "No problem! Feel free to ask if you need anything else. You can contact our agents at 8238477697 or 9974812701 anytime! 😊")
+            return
+    
+    # Handle site visit booking confirmation
+    if state.get("waiting_for") == "site_visit_booking":
+        if any(word in message_lower for word in ["yes", "yeah", "yep", "sure", "please", "book", "visit", "interested", "हाँ", "હા"]):
+            state["waiting_for"] = None
+            send_whatsapp_text(from_phone, "Perfect! Please contact *Mr. Nilesh at 7600612701* to book your site visit. He'll help you schedule a convenient time. Our site office is open from 10:30 AM to 7:00 PM. 📞")
+            return
+        elif any(word in message_lower for word in ["no", "not now", "later", "maybe", "નહીં", "ના"]):
+            state["waiting_for"] = None
+            send_whatsapp_text(from_phone, "No worries! Take your time. When you're ready to visit, just let me know or contact Mr. Nilesh at 7600612701. Is there anything else about Brookstone I can help you with? 😊")
             return
     
     # Handle brochure confirmation
@@ -245,150 +174,104 @@ def process_incoming_message(from_phone, message_text, message_id):
         if any(word in message_lower for word in ["yes", "yeah", "yep", "sure", "please", "send", "brochure", "pdf", "हाँ", "હા"]):
             state["waiting_for"] = None
             send_whatsapp_document(from_phone)
-            brochure_text = "📄 Here's your Brookstone brochure! It has all the details about our luxury 3&4BHK flats. Any questions after going through it? 😊"
-            if state["language"] == "gujarati":
-                brochure_text = translate_english_to_gujarati(brochure_text)
-            send_whatsapp_text(from_phone, brochure_text)
+            send_whatsapp_text(from_phone, "📄 Here's your Brookstone brochure! It has all the details about our luxury 3&4BHK flats. Any questions after going through it? 😊")
             return
         elif any(word in message_lower for word in ["no", "not now", "later", "નહીં", "ના"]):
             state["waiting_for"] = None
-            later_text = "Sure! Let me know if you'd like the brochure later or have any other questions about Brookstone. 😊"
-            if state["language"] == "gujarati":
-                later_text = translate_english_to_gujarati(later_text)
-            send_whatsapp_text(from_phone, later_text)
+            send_whatsapp_text(from_phone, "Sure! Let me know if you'd like the brochure later or have any other questions about Brookstone. 😊")
             return
 
     if not retriever:
-        error_text = "Please contact our agents at 8238477697 or 9974812701 for more info."
-        if state["language"] == "gujarati":
-            error_text = translate_english_to_gujarati(error_text)
-        send_whatsapp_text(from_phone, error_text)
+        send_whatsapp_text(from_phone, "Please contact our agents at 8238477697 or 9974812701 for more info.")
         return
 
     try:
-        # Translate Gujarati query to English for Pinecone search
-        search_query = message_text
-        if state["language"] == "gujarati":
-            search_query = translate_gujarati_to_english(message_text)
-            logging.info(f"🔄 Translated query: {search_query}")
-
-        docs = retriever.invoke(search_query)
+        docs = retriever.invoke(message_text)
         logging.info(f"📚 Retrieved {len(docs)} relevant documents")
 
         context = "\n\n".join(
             [(d.page_content or "") + ("\n" + "\n".join(f"{k}: {v}" for k, v in (d.metadata or {}).items())) for d in docs]
         )
 
-        # Store current context topics for future reference
-        state["last_context_topics"] = [d.metadata.get("topic", "") for d in docs if d.metadata.get("topic")]
-
-        # Enhanced system prompt with user context
-        user_context = f"User's previous interests: {', '.join(state['user_interests'])}" if state['user_interests'] else "First interaction"
-        
-        # Determine language for system prompt
-        language_instruction = ""
-        if state["language"] == "gujarati":
-            language_instruction = "IMPORTANT: User is asking in Gujarati. Respond in ENGLISH first, then it will be translated to Gujarati automatically."
-        
         system_prompt = f"""
 You are a friendly real estate assistant for Brookstone project. Be conversational and natural like a helpful friend.
 
-{language_instruction}
+Answer **only** using the context below.
+If something is not mentioned, say you don't have that information and suggest contacting the agent.
+Ask follow-up questions and try to convince the user.
+In follow-up questions, do not ask what is not present in knowledge base or pinecone. Ask only information what is present with us.
+After follow-up questions by bot, if user says yes for the question you asked, provide the correct answer and continue the conversational and natural flow with user.
+Be concise and direct - don't give overly detailed explanations, but include all relevant facts
+For general BHK interest: "Brookstone has luxury 3&4BHK flats 🏠 What would you like to know - size, location, or amenities? (you have to say both 3&4BHK)"
+Use 1-2 emojis maximum
+End with short, natural follow-up
+Always provide complete information when asked - don't cut off important details to make responses shorter
 
-CORE INSTRUCTIONS:
-- Answer using the context below when information is available
-- Be concise and direct - don't give overly detailed explanations, but include all relevant facts
-- Use 1-2 emojis maximum
-- Keep responses WhatsApp-friendly (avoid markdown formatting)
-- Do **NOT** invent or guess details
+TIMING RESPONSES:
+- For ANY timing related questions (office hours, site visiting times, when to visit, office timings, site timings): Always respond with "*10:30 AM to 7:00 PM*" and ask if they want the location
+- Examples: "Our site office is open from *10:30 AM to 7:00 PM* every day. Would you like me to send you the *location*?"
 
-SPECIAL HANDLING (Handle these even if not in context):
+ELEVATOR/LIFT RESPONSES:
+- For structure/material questions: "KONE/SCHINDLER or equivalent"
+- For ground floor lift questions: Only mention Block A and Block B lifts
+- For "Are lifts available in all towers?": "Yes, each tower is equipped with premium elevators ensuring smooth mobility"
+- Use the specific elevator_response from PROJECT DATA when available
 
-1. SITE VISIT TIMINGS/OFFICE TIMINGS:
-   - If user asks about timings, visiting hours, office hours, when to visit
-   - Respond: "Our site office is open from *10:30 AM to 7:00 PM* every day. Would you like me to send you the location?"
+SITE VISIT BOOKING:
+- When users show interest in visiting (words like "visit", "see", "tour", "check out"): Ask if they'd like to book a site visit
+- If they confirm interest: "Would you like me to help you book a site visit?"
 
-2. SITE VISIT BOOKING/APPOINTMENT:
-   - If user wants to book site visit, schedule appointment, or shows interest in visiting
-   - Respond: "Perfect! Please contact *Mr. Nilesh at 7600612701* to book your site visit. He'll help you schedule a convenient time."
+BROCHURE SENDING:
+- When users ask about details, sizes, floor plans, amenities: Ask if they'd like the brochure
+- "Would you like me to send you our detailed brochure with all specifications?"
 
-3. GENERAL QUERIES/PERSONAL CONTACT:
-   - If user wants to talk to someone, has general queries, needs personal assistance
-   - Respond: "You can contact our agents at 8238477697 or 9974812701 for any queries or personal assistance."
+Examples:
+- If user asks "what are the timings?" or "when can I visit?" or "office hours":
+  Reply: "Our site office is open from *10:30 AM to 7:00 PM* every day. Would you like me to send you the *location*?"
+- If user asks "Do you have 4BHK flats?":
+  Reply: "Sure! Brookstone offers luxurious 3&4BHK flats. Would you like to know more about sizes, amenities, or availability?"
+- If user shows interest in visiting: "Would you like me to help you book a site visit?"
+- If user asks about pricing and it's not in context: "For latest pricing, please contact our agents directly."
 
-4. PRICING DETAILS:
-   - If user asks about pricing, rates, cost, budget
-   - First check if pricing info is in the context below
-   - If pricing info is NOT in context: "For latest pricing details, please contact our agents at 8238477697 or 9974812701."
-   - If pricing info IS in context: Provide the pricing information from context
+Important: When you ask about location, brochure, or site visit booking - do NOT provide the answer immediately. Wait for user confirmation.
 
-5. LOCATION/ADDRESS REQUEST:
-   - If user asks for location, address, where is the site
-   - Respond: "Would you like me to send you our location?"
-
-NATURAL FOLLOW-UP STRATEGY:
-After handling special cases or providing answers from context, naturally ask follow-up questions based on available knowledge base context. Ask questions that:
-1. Help understand the user's specific needs better
-2. Guide them toward topics covered in the knowledge base
-3. Keep the conversation flowing naturally
-4. Encourage deeper engagement
-
-RESPONSE PATTERN:
-1. Handle special cases first (timings, booking, contact, pricing, location)
-2. If not a special case, provide answer from context
-3. If information not available in context, suggest contacting agents
-4. Add natural follow-up question based on available knowledge
-
-USER CONTEXT: {user_context}
-
-Remember: Handle the special cases naturally without being robotic. Make the conversation feel helpful and genuine.
+Carry out a friendly, conversational flow.
+Do **NOT** invent or guess details.
+Keep responses concise and WhatsApp-friendly (avoid markdown formatting).
 
 ---
-Available Knowledge Context:
+Context:
 {context}
 
-User Question: {search_query}
-
-Provide appropriate response following the guidelines above.
+User: {message_text}
 Assistant:
         """.strip()
 
         response = llm.invoke(system_prompt).content.strip()
         logging.info(f"🧠 LLM Response: {response}")
 
-        # Translate response to Gujarati if user language is Gujarati
-        final_response = response
-        if state["language"] == "gujarati":
-            final_response = translate_english_to_gujarati(response)
-            logging.info(f"🔄 Translated response: {final_response}")
-
         # --- Send primary text response ---
-        send_whatsapp_text(from_phone, final_response)
+        send_whatsapp_text(from_phone, response)
 
         # --- Set conversation states based on bot's response ---
-        response_lower = response.lower()  # Use original English response for state detection
+        response_lower = response.lower()
         
         # Check if bot is asking for location confirmation
         if "would you like me to send" in response_lower and "location" in response_lower:
             state["waiting_for"] = "location_confirmation"
             logging.info(f"🎯 Set state to location_confirmation for {from_phone}")
         
-        # Check if bot mentioned site visit booking contact
-        elif "mr. nilesh" in response_lower or "7600612701" in response_lower:
-            # Bot already provided site visit booking info, no state change needed
-            logging.info(f"📞 Site visit booking info provided to {from_phone}")
+        # Check if bot is asking for site visit booking
+        elif "would you like" in response_lower and ("book" in response_lower or "site visit" in response_lower):
+            state["waiting_for"] = "site_visit_booking"
+            logging.info(f"🎯 Set state to site_visit_booking for {from_phone}")
         
         # Check if bot is asking for brochure
         elif "would you like" in response_lower and ("brochure" in response_lower or "send you" in response_lower):
             state["waiting_for"] = "brochure_confirmation"
             logging.info(f"🎯 Set state to brochure_confirmation for {from_phone}")
-        
-        # Check if bot mentioned agent contact numbers
-        elif "8238477697" in response_lower or "9974812701" in response_lower:
-            # Bot already provided agent contact info, no state change needed
-            logging.info(f"📞 Agent contact info provided to {from_phone}")
 
-        # Legacy intent detection for immediate actions (without confirmation)
+        # Legacy intent detection (keep for backward compatibility)
         if re.search(r"\bsend.*location\b|\bhere.*location\b", response_lower) and state.get("waiting_for") != "location_confirmation":
             logging.info(f"📍 Legacy location trigger for {from_phone}")
             send_whatsapp_location(from_phone)
@@ -397,14 +280,11 @@ Assistant:
             logging.info(f"📄 Legacy brochure trigger for {from_phone}")
             send_whatsapp_document(from_phone)
 
-        state["chat_history"].append({"role": "assistant", "content": final_response})
+        state["chat_history"].append({"role": "assistant", "content": response})
 
     except Exception as e:
         logging.error(f"❌ Error in RAG processing: {e}")
-        error_text = "Sorry, I'm facing a technical issue. Please contact 8238477697 / 9974812701."
-        if state["language"] == "gujarati":
-            error_text = translate_english_to_gujarati(error_text)
-        send_whatsapp_text(from_phone, error_text)
+        send_whatsapp_text(from_phone, "Sorry, I'm facing a technical issue. Please contact 8238477697 / 9974812701.")
 
 # ================================================
 # WEBHOOK ROUTES
