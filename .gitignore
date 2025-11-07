@@ -1,0 +1,41 @@
+# ===== Python cache & environment =====
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# ===== Virtual environment folders =====
+venv/
+env/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# ===== Local environment files =====
+.env
+*.env
+
+# ===== Google service account credentials =====
+credentials.json
+
+# ===== OS / IDE specific =====
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# ===== Render / deployment artifacts =====
+*.bak
+*.tmp
+*.log
+*.sqlite3
+
+# ===== FAQ JSON backups (if any generated) =====
+faq_data_backup_*.json
+
+# ===== Pinecone upload scripts =====
+upload_to_pinecone.py
+upload_gujarati_to_pinecone.py
