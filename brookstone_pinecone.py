@@ -257,6 +257,33 @@ def process_incoming_message(from_phone, message_text, message_id):
                 later_text = translate_english_to_gujarati(later_text)
             send_whatsapp_text(from_phone, later_text)
             return
+    
+    # Handle ambiguous responses (when user says "sure" but it's unclear what they want)
+    if state.get("waiting_for") == "clarification_needed":
+        # Check if user wants layout/details
+        if any(word in message_lower for word in ["layout", "details", "size", "area", "plan", "floor", "design", "લેઆઉટ", "વિગત"]):
+            state["waiting_for"] = "brochure_confirmation"
+            clarify_text = "Great! Would you like me to send you our detailed brochure with all floor plans and specifications?"
+            if state["language"] == "gujarati":
+                clarify_text = translate_english_to_gujarati(clarify_text)
+            send_whatsapp_text(from_phone, clarify_text)
+            return
+        # Check if user wants site visit
+        elif any(word in message_lower for word in ["visit", "site", "see", "tour", "book", "appointment", "schedule", "મુલાકાત", "સાઇટ"]):
+            state["waiting_for"] = None
+            visit_text = "Perfect! Please contact *Mr. Nilesh at 7600612701* to book your site visit. He'll help you schedule a convenient time."
+            if state["language"] == "gujarati":
+                visit_text = translate_english_to_gujarati(visit_text)
+            send_whatsapp_text(from_phone, visit_text)
+            return
+        else:
+            # If still unclear, ask again
+            state["waiting_for"] = None
+            unclear_text = "I want to help you properly! Are you interested in seeing the layout details and brochure, or would you like to schedule a site visit? 😊"
+            if state["language"] == "gujarati":
+                unclear_text = translate_english_to_gujarati(unclear_text)
+            send_whatsapp_text(from_phone, unclear_text)
+            return
 
     if not retriever:
         error_text = "Please contact our agents at 8238477697 or 9974812701 for more info."
@@ -291,57 +318,43 @@ def process_incoming_message(from_phone, message_text, message_id):
             language_instruction = "IMPORTANT: User is asking in Gujarati. Respond in ENGLISH first, then it will be translated to Gujarati automatically."
         
         system_prompt = f"""
-You are a friendly real estate assistant for Brookstone project. Be conversational and natural like a helpful friend.
+You are a friendly real estate assistant for Brookstone project. Be conversational and natural.
 
 {language_instruction}
 
 CORE INSTRUCTIONS:
-- Answer using the context below when information is available
-- Be concise and direct - don't give overly detailed explanations, but include all relevant facts
-- Use 1-2 emojis maximum
-- Keep responses WhatsApp-friendly (avoid markdown formatting)
-- Do **NOT** invent or guess details
+- Be VERY CONCISE - give brief, direct answers (2-3 sentences max)
+- Answer using context below when available
+- Use 1 emoji maximum
+- Keep responses WhatsApp-friendly
+- Do NOT invent details
 
-SPECIAL HANDLING (Handle these even if not in context):
+SPECIAL HANDLING:
 
-1. SITE VISIT TIMINGS/OFFICE TIMINGS:
-   - If user asks about timings, visiting hours, office hours, when to visit
-   - Respond: "Our site office is open from *10:30 AM to 7:00 PM* every day. Would you like me to send you the location?"
+1. TIMINGS: "Our site office is open from *10:30 AM to 7:00 PM* every day. Would you like me to send you the location?"
 
-2. SITE VISIT BOOKING/APPOINTMENT:
-   - If user wants to book site visit, schedule appointment, or shows interest in visiting
-   - Respond: "Perfect! Please contact *Mr. Nilesh at 7600612701* to book your site visit. He'll help you schedule a convenient time."
+2. SITE VISIT BOOKING: "Perfect! Please contact *Mr. Nilesh at 7600612701* to book your site visit."
 
-3. GENERAL QUERIES/PERSONAL CONTACT:
-   - If user wants to talk to someone, has general queries, needs personal assistance
-   - Respond: "You can contact our agents at 8238477697 or 9974812701 for any queries or personal assistance."
+3. GENERAL QUERIES: "You can contact our agents at 8238477697 or 9974812701 for any queries."
 
-4. PRICING DETAILS:
-   - If user asks about pricing, rates, cost, budget
-   - First check if pricing info is in the context below
-   - If pricing info is NOT in context: "For latest pricing details, please contact our agents at 8238477697 or 9974812701."
-   - If pricing info IS in context: Provide the pricing information from context
+4. PRICING: Check context first. If no pricing info: "For latest pricing details, please contact our agents at 8238477697 or 9974812701."
 
-5. LOCATION/ADDRESS REQUEST:
-   - If user asks for location, address, where is the site
-   - Respond: "Would you like me to send you our location?"
+5. LOCATION REQUEST: "Would you like me to send you our location?"
 
-NATURAL FOLLOW-UP STRATEGY:
-After handling special cases or providing answers from context, naturally ask follow-up questions based on available knowledge base context. Ask questions that:
-1. Help understand the user's specific needs better
-2. Guide them toward topics covered in the knowledge base
-3. Keep the conversation flowing naturally
-4. Encourage deeper engagement
+FOLLOW-UP STRATEGY:
+- After answering, ask ONE simple follow-up question
+- If asking multiple options, use format: "Would you like to know about [option1] or [option2]?"
+- This helps clarify user intent when they give ambiguous responses like "sure"
 
 RESPONSE PATTERN:
-1. Handle special cases first (timings, booking, contact, pricing, location)
-2. If not a special case, provide answer from context
-3. If information not available in context, suggest contacting agents
-4. Add natural follow-up question based on available knowledge
+1. Give brief answer from context
+2. Ask ONE clear follow-up question with specific options
 
 USER CONTEXT: {user_context}
 
-Remember: Handle the special cases naturally without being robotic. Make the conversation feel helpful and genuine.
+Example:
+User: "Tell me about 3BHK"
+Response: "Yes, we have 3BHK options available! Would you like to know about the layout details or schedule a site visit? 😊"
 
 ---
 Available Knowledge Context:
@@ -349,7 +362,7 @@ Available Knowledge Context:
 
 User Question: {search_query}
 
-Provide appropriate response following the guidelines above.
+Provide a brief answer and ask ONE clear follow-up question.
 Assistant:
         """.strip()
 
@@ -372,6 +385,11 @@ Assistant:
         if "would you like me to send" in response_lower and "location" in response_lower:
             state["waiting_for"] = "location_confirmation"
             logging.info(f"🎯 Set state to location_confirmation for {from_phone}")
+        
+        # Check if bot is asking multiple choice question (layout or site visit)
+        elif ("layout" in response_lower or "details" in response_lower) and ("site visit" in response_lower or "schedule" in response_lower):
+            state["waiting_for"] = "clarification_needed"
+            logging.info(f"🎯 Set state to clarification_needed for {from_phone}")
         
         # Check if bot mentioned site visit booking contact
         elif "mr. nilesh" in response_lower or "7600612701" in response_lower:
