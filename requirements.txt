@@ -4,3 +4,4 @@ python-dotenv
 langchain-pinecone
 langchain-community
 langchain-openai
+google-generativeai

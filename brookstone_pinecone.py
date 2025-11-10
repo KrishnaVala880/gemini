@@ -9,6 +9,7 @@ from langchain_community.embeddings import OpenAIEmbeddings
 from langchain_openai import ChatOpenAI
 import json
 from datetime import datetime, timedelta
+import google.generativeai as genai
 
 load_dotenv()
 
@@ -23,6 +24,7 @@ WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "brookstone_verify_token_2024")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BROCHURE_URL = os.getenv("BROCHURE_URL", "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/BROOKSTONE.pdf")
 
 # Media state file - stores last uploaded media_id and timestamp
@@ -128,6 +130,13 @@ except Exception as e:
 if not OPENAI_API_KEY or not PINECONE_API_KEY:
     logging.error("❌ Missing API keys!")
 
+if not GEMINI_API_KEY:
+    logging.error("❌ Missing Gemini API key!")
+else:
+    # Configure Gemini
+    genai.configure(api_key=GEMINI_API_KEY)
+    logging.info("✅ Gemini API configured successfully")
+
 # ================================================
 # PINECONE SETUP
 # ================================================
@@ -149,14 +158,25 @@ except Exception as e:
 # LLM SETUP
 # ================================================
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-translator_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+# Initialize Gemini model for translations
+try:
+    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+    logging.info("✅ Gemini model initialized successfully")
+except Exception as e:
+    logging.error(f"❌ Error initializing Gemini model: {e}")
+    gemini_model = None
 
 # ================================================
 # TRANSLATION FUNCTIONS
 # ================================================
 def translate_gujarati_to_english(text):
-    """Translate Gujarati text to English"""
+    """Translate Gujarati text to English using Gemini"""
     try:
+        if not gemini_model:
+            logging.error("❌ Gemini model not available for translation")
+            return text
+            
         translation_prompt = f"""
 Translate the following Gujarati text to English. Provide only the English translation, nothing else.
 
@@ -164,15 +184,19 @@ Gujarati text: {text}
 
 English translation:
         """
-        response = translator_llm.invoke(translation_prompt)
-        return response.content.strip()
+        response = gemini_model.generate_content(translation_prompt)
+        return response.text.strip()
     except Exception as e:
-        logging.error(f"❌ Error translating Gujarati to English: {e}")
+        logging.error(f"❌ Error translating Gujarati to English with Gemini: {e}")
         return text  # Return original text if translation fails
 
 def translate_english_to_gujarati(text):
-    """Translate English text to Gujarati"""
+    """Translate English text to Gujarati using Gemini"""
     try:
+        if not gemini_model:
+            logging.error("❌ Gemini model not available for translation")
+            return text
+            
         translation_prompt = f"""
 Translate the following English text to Gujarati. Keep the same tone, style, and LENGTH - make it brief and concise like the original. Provide only the Gujarati translation, nothing else.
 
@@ -180,10 +204,10 @@ English text: {text}
 
 Gujarati translation (keep it brief and concise):
         """
-        response = translator_llm.invoke(translation_prompt)
-        return response.content.strip()
+        response = gemini_model.generate_content(translation_prompt)
+        return response.text.strip()
     except Exception as e:
-        logging.error(f"❌ Error translating English to Gujarati: {e}")
+        logging.error(f"❌ Error translating English to Gujarati with Gemini: {e}")
         return text  # Return original text if translation fails
 
 # ================================================
@@ -664,7 +688,8 @@ def health():
         "status": "healthy",
         "whatsapp_configured": bool(WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID),
         "openai_configured": bool(OPENAI_API_KEY),
-        "pinecone_configured": bool(PINECONE_API_KEY)
+        "pinecone_configured": bool(PINECONE_API_KEY),
+        "gemini_configured": bool(GEMINI_API_KEY and gemini_model)
     }), 200
 
 @app.route("/", methods=["GET"])
