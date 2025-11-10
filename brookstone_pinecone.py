@@ -130,12 +130,19 @@ except Exception as e:
 if not OPENAI_API_KEY or not PINECONE_API_KEY:
     logging.error("❌ Missing API keys!")
 
+# Initialize Gemini for translations
+gemini_model = None
 if not GEMINI_API_KEY:
-    logging.error("❌ Missing Gemini API key!")
+    logging.error("❌ Missing Gemini API key! Translations will not work.")
 else:
-    # Configure Gemini
-    genai.configure(api_key=GEMINI_API_KEY)
-    logging.info("✅ Gemini API configured successfully")
+    try:
+        # Configure Gemini
+        genai.configure(api_key=GEMINI_API_KEY)
+        gemini_model = genai.GenerativeModel('gemini-2.5-flash')
+        logging.info("✅ Gemini API configured and model initialized successfully")
+    except Exception as e:
+        logging.error(f"❌ Error initializing Gemini: {e}")
+        gemini_model = None
 
 # ================================================
 # PINECONE SETUP
@@ -159,14 +166,6 @@ except Exception as e:
 # ================================================
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
-# Initialize Gemini model for translations
-try:
-    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
-    logging.info("✅ Gemini model initialized successfully")
-except Exception as e:
-    logging.error(f"❌ Error initializing Gemini model: {e}")
-    gemini_model = None
-
 # ================================================
 # TRANSLATION FUNCTIONS
 # ================================================
@@ -184,8 +183,13 @@ Gujarati text: {text}
 
 English translation:
         """
+        
+        logging.info(f"🔄 Translating Gujarati to English: {text[:50]}...")
         response = gemini_model.generate_content(translation_prompt)
-        return response.text.strip()
+        translated_text = response.text.strip()
+        logging.info(f"✅ Translation result: {translated_text[:50]}...")
+        return translated_text
+        
     except Exception as e:
         logging.error(f"❌ Error translating Gujarati to English with Gemini: {e}")
         return text  # Return original text if translation fails
@@ -204,8 +208,13 @@ English text: {text}
 
 Gujarati translation (keep it brief and concise):
         """
+        
+        logging.info(f"🔄 Translating English to Gujarati: {text[:50]}...")
         response = gemini_model.generate_content(translation_prompt)
-        return response.text.strip()
+        translated_text = response.text.strip()
+        logging.info(f"✅ Translation result: {translated_text[:50]}...")
+        return translated_text
+        
     except Exception as e:
         logging.error(f"❌ Error translating English to Gujarati with Gemini: {e}")
         return text  # Return original text if translation fails
